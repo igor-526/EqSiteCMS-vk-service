@@ -1,11 +1,11 @@
 # Deployment settings
-name: eqcms-email-service
-componentsLabel: email-service
+name: eqcms-vk-service
+componentsLabel: vk-service
 replicaCount: 1
 namespace: cms
 
 # App settings
-secretName: eqsitecms-email-service-secret
+secretName: eqsitecms-vk-service-secret
 containerPort: 8000
 resources:
   requests:
@@ -21,7 +21,7 @@ metrics:
   interval: 30s
 
 # Image settings
-image: ghcr.io/igor-526/eqsitecms-email-service
+image: ghcr.io/igor-526/eqsitecms-vk-service
 imagePullSecertName: ghcr-secret
 imageTag: latest
 
@@ -31,5 +31,8 @@ migration:
 
 workers:
   - name: celery-worker
-    command: ["uv", "run", "--no-sync", "celery", "-A", "workers.celery_app", "worker", "-Q", "email", "-l", "info"]
+    command: ["uv", "run", "--no-sync", "celery", "-A", "workers.celery_app", "worker", "-Q", "vk", "-l", "info", "--hostname", "vk-worker@%h"]
+    replicas: 1
+  - name: vk-bot
+    command: ["uv", "run", "--no-sync", "python", "-m", "bot"]
     replicas: 1
