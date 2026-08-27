@@ -1,7 +1,7 @@
 import os
 from functools import cached_property
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,7 @@ class Settings(BaseSettings):
                 "CELERY_APP_BACKEND",
                 "MAIN_BACKEND_SERVICE_KEY",
                 "NATS_SERVERS",
+                "VK_GROUP_TOKEN",
             )
             unsafe = {"", "app", "changeme", "eqsitecmsredis"}
 
@@ -173,10 +174,64 @@ class CelerySettings(BaseSettings):
     )
 
 
+class VkSettings(BaseSettings):
+    """Настройки группы VK и параметров подтверждения привязки."""
+
+    vk_group_token: str = Field(default="", alias="VK_GROUP_TOKEN")
+    vk_group_id: int = Field(default=0, alias="VK_GROUP_ID")
+    vk_group_screen_name: str = Field(default="", alias="VK_GROUP_SCREEN_NAME")
+    vk_api_version: str = Field(default="5.199", alias="VK_API_VERSION")
+    vk_bot_link_command: str = Field(default="/link", alias="VK_BOT_LINK_COMMAND")
+    vk_confirmation_ttl_minutes: int = Field(default=30, alias="VK_CONFIRMATION_TTL_MINUTES", ge=1)
+    vk_confirmation_code_length: int = Field(default=8, alias="VK_CONFIRMATION_CODE_LENGTH", ge=4, le=16)
+    vk_confirmation_max_attempts: int = Field(default=5, alias="VK_CONFIRMATION_MAX_ATTEMPTS", ge=1)
+    vk_confirmation_attempt_window_minutes: int = Field(
+        default=10,
+        alias="VK_CONFIRMATION_ATTEMPT_WINDOW_MINUTES",
+        ge=1,
+    )
+    vk_longpoll_wait_seconds: int = Field(default=25, alias="VK_LONGPOLL_WAIT_SECONDS", ge=1, le=90)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    @field_validator("vk_group_id", mode="before")
+    @classmethod
+    def treat_placeholder_group_id_as_unset(cls, value: object) -> object:
+        """Placeholder из `.env.example` означает «группа ещё не настроена», а не ошибку."""
+        if isinstance(value, str) and not value.strip().lstrip("-").isdigit():
+            return 0
+        return value
+
+    @property
+    def is_group_configured(self) -> bool:
+        """Группа считается настроенной, когда известны её идентификатор и адрес."""
+        return bool(self.vk_group_screen_name.strip()) and self.vk_group_id > 0
+
+    @property
+    def is_token_usable(self) -> bool:
+        """Токен пригоден, если он задан и не является placeholder-значением."""
+        token = self.vk_group_token.strip()
+        return bool(token) and not token.startswith("<")
+
+    @property
+    def group_url(self) -> str:
+        return f"https://vk.com/{self.vk_group_screen_name.strip()}"
+
+    @property
+    def dialog_url(self) -> str:
+        return f"https://vk.me/{self.vk_group_screen_name.strip()}"
+
+
 settings = Settings()
 sentry_settings = SentrySettings()
 nats_settings = NatsSettings()
 celery_settings = CelerySettings()
+vk_settings = VkSettings()
 
 
 class MainBackendSettings(BaseSettings):

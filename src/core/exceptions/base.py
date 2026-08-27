@@ -24,3 +24,11 @@ class ConflictError(ClientError):
 
 class GoneError(ClientError):
     status_code = 410
+
+
+class RateLimitedError(ClientError):
+    status_code = 429
+
+
+class ServiceUnavailableError(AppError):
+    status_code = 503

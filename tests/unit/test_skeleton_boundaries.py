@@ -1,4 +1,4 @@
-"""Границы скелета: пустой реестр таблиц, пустые точки расширения, чистый `src/`.
+"""Границы сервиса: реестр таблиц VK-домена, состав точек расширения, чистый `src/`.
 
 Самосканирующий тест использует искомые токены как данные и записывает их обычными
 литералами: guard-проверка ограничена реализацией и `tests/**` не покрывает.
@@ -19,20 +19,28 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 FORBIDDEN_TOKENS = ("email", "smtp", "aiosmtplib")
 
+EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs"}
 
-def test_models_package_registers_no_tables() -> None:
+
+def test_models_package_registers_only_vk_domain_tables() -> None:
     importlib.reload(models)
 
-    assert models.__all__ == []
-    assert metadata.tables == {}
-    assert metadata.sorted_tables == []
+    assert set(models.__all__) == EXPECTED_TABLES
+    assert set(metadata.tables) == EXPECTED_TABLES
 
 
-def test_repositories_package_is_an_empty_extension_point() -> None:
+def test_repositories_package_exports_only_vk_domain_members() -> None:
     module = importlib.reload(repositories)
 
-    assert module.__all__ == []
-    assert not [name for name in vars(module) if not name.startswith("_")]
+    assert set(module.__all__) == {
+        "SQLAlchemyUserVkRepository",
+        "SQLAlchemyVkConfirmationRepository",
+        "SQLAlchemyVkLogRepository",
+        "UserVkRepositoryProtocol",
+        "VkConfirmationRepositoryProtocol",
+        "VkLogRepositoryProtocol",
+    }
+    assert sorted(module.__all__) == list(module.__all__)
 
 
 def test_migration_env_binds_target_metadata_to_service_metadata(monkeypatch: pytest.MonkeyPatch) -> None:

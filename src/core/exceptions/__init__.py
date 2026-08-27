@@ -1,4 +1,13 @@
-from .base import AlreadyExistsError, AppError, ClientError, ConflictError, GoneError, NotFoundError
+from .base import (
+    AlreadyExistsError,
+    AppError,
+    ClientError,
+    ConflictError,
+    GoneError,
+    NotFoundError,
+    RateLimitedError,
+    ServiceUnavailableError,
+)
 
 __all__ = [
     "AlreadyExistsError",
@@ -7,4 +16,6 @@ __all__ = [
     "ConflictError",
     "GoneError",
     "NotFoundError",
+    "RateLimitedError",
+    "ServiceUnavailableError",
 ]

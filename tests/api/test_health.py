@@ -1,4 +1,4 @@
-"""HTTP-контракт скелета vk-service.
+"""HTTP-контракт vk-service: health и отсутствие унаследованной поверхности.
 
 Унаследованные от `email-service` маршруты `/emails*` в скелете не зарегистрированы:
 каждый из них обязан отвечать `404`. Пути записаны обычными литералами, потому что
@@ -138,8 +138,20 @@ def test_validation_error_handler_returns_400_with_error_list() -> None:
     assert detail[0]["type"] == "missing"
 
 
-def test_openapi_document_exposes_only_health_path() -> None:
+def test_openapi_document_exposes_health_and_the_vk_domain() -> None:
     response = _client().get("/openapi.json")
 
     assert response.status_code == 200
-    assert set(response.json()["paths"]) == {"/health"}
+    assert set(response.json()["paths"]) == {
+        "/health",
+        "/vks",
+        "/vks/bot-info",
+        "/vks/issue-confirmation",
+        "/vks/{user_id}",
+    }
+
+
+def test_openapi_document_exposes_no_inherited_collection_paths() -> None:
+    response = _client().get("/openapi.json")
+
+    assert not [path for path in response.json()["paths"] if path.startswith(INHERITED_COLLECTION)]

@@ -1,4 +1,4 @@
-"""Конфигурация скелета vk-service.
+"""Конфигурация vk-service.
 
 Удалённые email/SMTP-сущности проверяются по их настоящим именам: guard-проверка
 на остатки email-домена ограничена реализацией и `tests/**` не покрывает.
@@ -10,14 +10,20 @@ from typing import Any, cast
 import pytest
 
 import settings as settings_module
-from settings import CelerySettings, NatsSettings, Settings
+from settings import CelerySettings, NatsSettings, Settings, VkSettings
 
 _settings_factory = cast(Callable[..., Settings], Settings)
+_vk_settings_factory = cast(Callable[..., VkSettings], VkSettings)
 
 
 def build_settings(**overrides: Any) -> Settings:
     """Собрать Settings без чтения локального `.env`, чтобы тесты были детерминированными."""
     return _settings_factory(_env_file=None, **overrides)
+
+
+def build_vk_settings(**overrides: Any) -> VkSettings:
+    """Собрать VkSettings без чтения локального `.env`."""
+    return _vk_settings_factory(_env_file=None, **overrides)
 
 
 REMOVED_SETTINGS_EXPORT = "smtp_settings"
@@ -34,6 +40,7 @@ SAFE_PRODUCTION_ENV = {
     "CELERY_APP_BACKEND": "redis://:b1c9f3a76e2c4a9d81ff@eqsitecms-redis:6379/4",
     "MAIN_BACKEND_SERVICE_KEY": "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
     "NATS_SERVERS": "nats://eqsitecms-nats:4222",
+    "VK_GROUP_TOKEN": "vk1.a.5f6e7d8c9b0a1928374655",
 }
 
 
@@ -63,6 +70,20 @@ def test_production_validation_passes_without_smtp_password(monkeypatch: pytest.
     instance = build_settings(ENVIRONMENT="production")
 
     assert instance.environment == "production"
+
+
+def test_production_validation_requires_a_group_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    _apply_production_env(monkeypatch, VK_GROUP_TOKEN="")
+
+    with pytest.raises(ValueError, match="VK_GROUP_TOKEN"):
+        build_settings(ENVIRONMENT="production")
+
+
+def test_production_validation_rejects_a_placeholder_group_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    _apply_production_env(monkeypatch, VK_GROUP_TOKEN="<set-vk-group-access-token>")
+
+    with pytest.raises(ValueError, match="VK_GROUP_TOKEN"):
+        build_settings(ENVIRONMENT="production")
 
 
 def test_production_validation_rejects_well_known_redis_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,3 +176,49 @@ def test_comma_separated_servers_are_parsed_without_empty_entries() -> None:
 
 def test_blank_servers_fall_back_to_localhost() -> None:
     assert NatsSettings(NATS_SERVERS="   ").nats_servers == ["nats://localhost:4222"]
+
+
+def test_vk_settings_defaults_match_the_documented_contract() -> None:
+    instance = build_vk_settings()
+
+    assert instance.vk_bot_link_command == "/link"
+    assert instance.vk_confirmation_ttl_minutes == 30
+    assert instance.vk_confirmation_code_length == 8
+    assert instance.vk_confirmation_max_attempts == 5
+    assert instance.vk_confirmation_attempt_window_minutes == 10
+    assert instance.vk_longpoll_wait_seconds == 25
+    assert instance.vk_api_version == "5.199"
+
+
+def test_vk_settings_treat_an_unset_group_as_not_configured() -> None:
+    instance = build_vk_settings()
+
+    assert instance.vk_group_id == 0
+    assert instance.is_group_configured is False
+    assert instance.is_token_usable is False
+
+
+def test_vk_settings_treat_placeholders_as_not_configured() -> None:
+    instance = build_vk_settings(
+        VK_GROUP_TOKEN="<set-vk-group-access-token>",
+        VK_GROUP_ID="<set-vk-group-numeric-id>",
+        VK_GROUP_SCREEN_NAME="",
+    )
+
+    assert instance.vk_group_id == 0
+    assert instance.is_group_configured is False
+    assert instance.is_token_usable is False
+
+
+def test_vk_settings_build_public_group_links() -> None:
+    instance = build_vk_settings(VK_GROUP_ID=123, VK_GROUP_SCREEN_NAME="eqsitecms_bot")
+
+    assert instance.is_group_configured is True
+    assert instance.group_url == "https://vk.com/eqsitecms_bot"
+    assert instance.dialog_url == "https://vk.me/eqsitecms_bot"
+
+
+def test_vk_settings_accept_a_real_token_as_usable() -> None:
+    instance = build_vk_settings(VK_GROUP_TOKEN="vk1.a.5f6e7d8c9b0a1928374655")
+
+    assert instance.is_token_usable is True
