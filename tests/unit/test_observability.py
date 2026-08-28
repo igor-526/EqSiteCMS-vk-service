@@ -97,6 +97,8 @@ async def test_lifespan_closes_nats_database_and_metrics(monkeypatch: pytest.Mon
     nats = Mock(connect=AsyncMock(), setup=AsyncMock(), close=AsyncMock())
     runtime = Mock()
     monkeypatch.setattr(main.container, "nats_client", Mock(return_value=nats))
+    consumer = Mock(start=AsyncMock(), stop=AsyncMock())
+    monkeypatch.setattr(main.container, "vk_notification_consumer", Mock(return_value=consumer))
     close_database = AsyncMock()
     monkeypatch.setattr(main, "close_database", close_database)
     monkeypatch.setattr(main, "start_metrics_runtime", Mock(return_value=runtime))
@@ -105,6 +107,8 @@ async def test_lifespan_closes_nats_database_and_metrics(monkeypatch: pytest.Mon
     nats.connect.assert_awaited_once_with()
     nats.setup.assert_awaited_once_with()
     nats.close.assert_awaited_once_with()
+    consumer.start.assert_awaited_once_with()
+    consumer.stop.assert_awaited_once_with()
     close_database.assert_awaited_once_with()
     runtime.close.assert_called_once_with()
 

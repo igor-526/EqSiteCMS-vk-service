@@ -1,11 +1,11 @@
 """Реестр таблиц VK-домена: состав колонок, значения по умолчанию, индексы."""
 
-from sqlalchemy import Table
+from sqlalchemy import Table, UniqueConstraint
 
-from models import user_vks, vk_confirmations, vk_logs
+from models import user_vks, vk_confirmations, vk_logs, vk_notification_deliveries
 from utils.basemodel import metadata
 
-EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs"}
+EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs", "vk_notification_deliveries"}
 DONOR_TABLES = {"user_emails", "email_confirmations", "email_logs"}
 
 
@@ -39,6 +39,29 @@ def test_user_vks_columns_and_nullability() -> None:
     assert columns["deleted_at"].nullable is True
     assert columns["created_at"].nullable is False
     assert columns["updated_at"].nullable is False
+
+
+def test_vk_notification_delivery_ledger_has_safe_columns_and_unique_recipient() -> None:
+    columns = {column.name: column for column in vk_notification_deliveries.columns}
+    assert set(columns) == {
+        "id",
+        "event_uuid",
+        "user_id",
+        "vk_peer_id",
+        "status",
+        "attempts",
+        "last_error",
+        "created_at",
+        "updated_at",
+        "sent_at",
+    }
+    assert not {"text", "phone", "token"} & set(columns)
+    unique_column_sets = {
+        frozenset(column.name for column in constraint.columns)
+        for constraint in vk_notification_deliveries.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert frozenset({"event_uuid", "user_id"}) in unique_column_sets
 
 
 def test_user_vks_defaults_are_pending_and_not_deleted() -> None:

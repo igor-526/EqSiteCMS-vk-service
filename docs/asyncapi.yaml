@@ -1,0 +1,52 @@
+asyncapi: 2.6.0
+info:
+  title: EqSiteCMS VK Service Messaging
+  version: 1.0.0
+  description: Canonical VK notification command consumer contract.
+servers:
+  jetstream:
+    url: nats://eqcms-nats:4222
+    protocol: nats
+channels:
+  commands.notification.vk.send:
+    x-jetstream-stream: NOTIFICATION_COMMANDS
+    x-jetstream-consumer:
+      durable: vk-service-commands-send-vk
+      ack-policy: explicit
+      ack-wait-seconds: 30
+      max-deliver: 5
+    subscribe:
+      operationId: consumeNotificationVkCommand
+      message:
+        $ref: "#/components/messages/NotificationVkCommand"
+components:
+  messages:
+    NotificationVkCommand:
+      name: NotificationVkCommand
+      headers:
+        $ref: "#/components/schemas/IdempotencyHeaders"
+      payload:
+        $ref: "#/components/schemas/NotificationVkPayload"
+  schemas:
+    IdempotencyHeaders:
+      type: object
+      additionalProperties: false
+      required: [Nats-Msg-Id]
+      properties:
+        Nats-Msg-Id:
+          type: string
+          format: uuid
+    NotificationVkPayload:
+      type: object
+      additionalProperties: false
+      required: [occurred_at, event_uuid, callback_request_id, user_ids, text]
+      properties:
+        occurred_at: {type: string, format: date-time}
+        event_uuid: {type: string, format: uuid}
+        callback_request_id: {type: string, format: uuid}
+        user_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, format: uuid}
+        text: {type: string, minLength: 1, maxLength: 4096}

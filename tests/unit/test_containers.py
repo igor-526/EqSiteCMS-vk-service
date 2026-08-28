@@ -16,6 +16,8 @@ EXPECTED_PROVIDERS = {
     "celery_app",
     "vk_settings",
     "vk_messenger",
+    "vk_notification_handler",
+    "vk_notification_consumer",
 }
 
 

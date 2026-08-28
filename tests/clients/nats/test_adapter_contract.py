@@ -30,15 +30,19 @@ async def test_setup_streams_never_creates_a_stream(monkeypatch: pytest.MonkeyPa
     assert jetstream.mock_calls == []
 
 
-async def test_setup_consumers_never_registers_a_durable(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_setup_registers_only_vk_delivery_durable(monkeypatch: pytest.MonkeyPatch) -> None:
     client, _, jetstream = _connected_client(monkeypatch)
     await client.connect()
 
     await client.setup()
 
-    jetstream.add_consumer.assert_not_awaited()
+    jetstream.add_consumer.assert_awaited_once()
     jetstream.pull_subscribe.assert_not_awaited()
-    assert jetstream.mock_calls == []
+    config = jetstream.add_consumer.await_args.kwargs["config"]
+    assert jetstream.add_consumer.await_args.kwargs["stream"] == "NOTIFICATION_COMMANDS"
+    assert config.durable_name == "vk-service-commands-send-vk"
+    assert config.filter_subject == "commands.notification.vk.send"
+    assert config.max_deliver == 5
 
 
 async def test_connect_announces_the_service_client_name(monkeypatch: pytest.MonkeyPatch) -> None:

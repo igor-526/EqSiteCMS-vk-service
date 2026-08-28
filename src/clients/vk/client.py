@@ -57,7 +57,7 @@ class VkbottleMessenger:
                 random_id=random.randint(1, RANDOM_ID_BOUND),  # noqa: S311
             )
         except Exception:
-            logger.warning("VK message delivery failed for peer=%s", peer_id, exc_info=True)
+            logger.warning("VK message delivery failed for peer=%s", peer_id)
             return False
         return True
 

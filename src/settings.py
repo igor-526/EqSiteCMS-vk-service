@@ -96,7 +96,7 @@ class NatsSettings(BaseSettings):
     )
     nats_stream_notification_commands: str = Field(
         default="NOTIFICATION_COMMANDS",
-        alias="NOTIFICATION_COMMANDS",
+        alias="NATS_STREAM_NOTIFICATION_COMMANDS",
     )
 
     # CONSUMERS (зарезервировано, подписка не активирована)

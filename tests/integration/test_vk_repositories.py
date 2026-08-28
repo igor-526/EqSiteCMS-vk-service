@@ -4,19 +4,21 @@
 Адрес берётся из `VK_TEST_DATABASE_URL`, иначе из настроек сервиса.
 """
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from core.exceptions import AlreadyExistsError
-from models import user_vks, vk_confirmations, vk_logs
+from models import user_vks, vk_logs, vk_notification_deliveries
 from repositories.user_vk import (
     STATE_ACTIVE,
     STATE_BLOCKED,
@@ -25,11 +27,12 @@ from repositories.user_vk import (
 )
 from repositories.vk_confirmation import SQLAlchemyVkConfirmationRepository
 from repositories.vk_log import SQLAlchemyVkLogRepository
+from repositories.vk_notification_delivery import SQLAlchemyVkNotificationDeliveryRepository
 from settings import settings
 
 pytestmark = pytest.mark.infrastructure
 
-EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs"}
+EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs", "vk_notification_deliveries"}
 DONOR_TABLES = {"user_emails", "email_confirmations", "email_logs"}
 
 
@@ -40,15 +43,68 @@ def _database_url() -> str:
 @pytest_asyncio.fixture
 async def session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine(_database_url(), pool_pre_ping=True)
-    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     try:
-        async with factory() as active_session:
+        async with _isolated_session(engine) as active_session:
             yield active_session
-            await active_session.rollback()
-            for table in (vk_confirmations, vk_logs, user_vks):
-                await active_session.execute(delete(table))
-            await active_session.commit()
     finally:
+        await engine.dispose()
+
+
+@asynccontextmanager
+async def _isolated_session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """Keep every test write inside an outer transaction owned by the fixture."""
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        factory = async_sessionmaker(
+            bind=connection,
+            expire_on_commit=False,
+            autoflush=False,
+            join_transaction_mode="create_savepoint",
+        )
+        try:
+            async with factory() as active_session:
+                yield active_session
+        finally:
+            await transaction.rollback()
+
+
+async def test_fixture_rollback_preserves_preexisting_active_binding() -> None:
+    engine = create_async_engine(_database_url(), pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    preserved_id, preserved_user_id = uuid4(), uuid4()
+    test_user_id = uuid4()
+    preserved_peer_id = 1_000_000_000 + uuid4().int % 8_000_000_000
+    try:
+        async with factory() as setup:
+            await setup.execute(
+                user_vks.insert().values(
+                    id=preserved_id,
+                    user_id=preserved_user_id,
+                    vk_peer_id=preserved_peer_id,
+                    state=STATE_ACTIVE,
+                )
+            )
+            await setup.commit()
+
+        async with _isolated_session(engine) as isolated:
+            created = await SQLAlchemyUserVkRepository(isolated).create(user_id=test_user_id)
+            await isolated.commit()
+            assert created["user_id"] == test_user_id
+
+        async with factory() as verification:
+            preserved = (
+                await verification.execute(select(user_vks.c.state).where(user_vks.c.id == preserved_id))
+            ).scalar_one()
+            rolled_back = (
+                await verification.execute(select(user_vks.c.id).where(user_vks.c.user_id == test_user_id))
+            ).scalar_one_or_none()
+
+            assert preserved == STATE_ACTIVE
+            assert rolled_back is None
+    finally:
+        async with factory() as cleanup:
+            await cleanup.execute(delete(user_vks).where(user_vks.c.id == preserved_id))
+            await cleanup.commit()
         await engine.dispose()
 
 
@@ -242,3 +298,33 @@ async def test_count_failed_since_is_scoped_to_peer_status_and_window(session: A
     )
 
     assert (in_window, outside_window, other_peer) == (2, 0, 1)
+
+
+async def test_ut37_delivery_claim_serializes_concurrent_duplicate() -> None:
+    engine = create_async_engine(_database_url(), pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    event_uuid, user_id = uuid4(), uuid4()
+    try:
+        async with factory() as first, factory() as second:
+            first_repo = SQLAlchemyVkNotificationDeliveryRepository(first)
+            second_repo = SQLAlchemyVkNotificationDeliveryRepository(second)
+            assert await first_repo.claim_attempt(event_uuid=event_uuid, user_id=user_id, vk_peer_id=50505)
+            await first_repo.mark_sent(event_uuid=event_uuid, user_id=user_id)
+            competing = asyncio.create_task(
+                second_repo.claim_attempt(event_uuid=event_uuid, user_id=user_id, vk_peer_id=50505)
+            )
+            await asyncio.sleep(0)
+            assert competing.done() is False
+            await first.commit()
+            assert await competing is None
+            await second.commit()
+        async with factory() as cleanup:
+            await cleanup.execute(
+                delete(vk_notification_deliveries).where(
+                    vk_notification_deliveries.c.event_uuid == event_uuid,
+                    vk_notification_deliveries.c.user_id == user_id,
+                )
+            )
+            await cleanup.commit()
+    finally:
+        await engine.dispose()

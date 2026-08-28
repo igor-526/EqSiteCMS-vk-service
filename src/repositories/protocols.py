@@ -83,3 +83,13 @@ class VkLogRepositoryProtocol(Protocol):
     ) -> int:
         """Посчитать неуспешные попытки по идентификатору VK начиная с момента."""
         ...
+
+
+class VkNotificationDeliveryRepositoryProtocol(Protocol):
+    async def claim_attempt(self, *, event_uuid: UUID, user_id: UUID, vk_peer_id: int) -> dict | None:
+        """Serialize a recipient attempt and return None when it is already SENT."""
+        ...
+
+    async def mark_sent(self, *, event_uuid: UUID, user_id: UUID) -> dict: ...
+
+    async def mark_failed(self, *, event_uuid: UUID, user_id: UUID, error_category: str) -> dict: ...

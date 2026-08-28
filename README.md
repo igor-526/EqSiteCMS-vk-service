@@ -6,12 +6,7 @@
 контрольную строку, принимает её от пользователя сообщением боту группы,
 хранит состояние привязки и журнал действий. Он поднимает FastAPI-приложение
 (`GET /health` и приватные маршруты `/vks*`), отдельный long-poll runtime бота,
-Celery-воркер очереди `vk` и подключается к NATS JetStream без активных streams
-и consumers.
-
-Доставка уведомлений о событиях в VK (потребление
-`commands.notification.vk.send`) в сервисе **ещё не реализована** и добавляется
-отдельным change.
+Celery-воркер очереди `vk` и потребляет команды доставки из NATS JetStream.
 
 ## Стек
 
@@ -20,7 +15,7 @@ Celery-воркер очереди `vk` и подключается к NATS JetS
 - SQLAlchemy Core + asyncpg
 - PostgreSQL 16
 - Alembic
-- NATS JetStream (клиент без активной топологии)
+- NATS JetStream (durable pull consumer VK-команд)
 - Celery + Redis (очередь `vk`, Redis DB 3/4)
 - `vkbottle` (асинхронный клиент VK API и Bots Long Poll)
 - Sentry (опционально)
@@ -41,7 +36,7 @@ src/
 ├── bot/                 # Long-poll runtime: точка входа, обработчики событий
 ├── clients/
 │   ├── main_backend/    # HTTP-клиент главного backend (X-Service-Key)
-│   ├── nats/            # NatsJetstreamClient; consumers/ и handlers/ пусты
+│   ├── nats/            # NatsJetstreamClient, VK command consumer и handler
 │   └── vk/              # Адаптер vkbottle под протоколы домена
 ├── containers/          # DI-контейнер (NATS + Celery + VK)
 ├── core/
@@ -68,8 +63,19 @@ src/
 `vkbottle` импортируется **только** в `clients/vk/**` и `bot/**`: домен
 (`core/services`, `repositories`, `models`, `api`) зависит от протоколов
 `core/protocols/vk`, поэтому тестируется без сети и без группового токена.
-Пустые пакеты `clients/nats/consumers` и `clients/nats/handlers` сохранены как
-точки расширения с пустым `__all__` и без мёртвого кода.
+
+## NATS JetStream
+
+| Stream | Subject | Durable | Назначение | Роль |
+|---|---|---|---|---|
+| `NOTIFICATION_COMMANDS` | `commands.notification.vk.send` | `vk-service-commands-send-vk` | Callback-уведомление выбранным пользователям | входящий |
+
+VK Service создаёт/актуализирует только собственный durable consumer с explicit ACK/NAK,
+но не создаёт stream `NOTIFICATION_COMMANDS`. Consumer запускается только в lifespan
+FastAPI-приложения; отдельный bot runtime его не запускает. Успешные доставки фиксируются
+в `vk_notification_deliveries`, поэтому redelivery пропускает уже отправленных адресатов.
+
+Проверка схемы: `npx --yes @asyncapi/cli validate docs/asyncapi.yaml`.
 
 ## Запуск
 
@@ -244,11 +250,11 @@ DB `4` — как backend результатов; номера зафиксир�
 | `CELERY_APP_BACKEND` | `redis://:...@redis:6379/4` | Redis backend результатов |
 | `NATS_SERVERS` | `nats://localhost:4222` | Список серверов NATS через запятую |
 | `NATS_STREAM_SITE_EVENTS` | `SITE_EVENTS` | Имя stream (зарезервировано) |
-| `NOTIFICATION_COMMANDS` | `NOTIFICATION_COMMANDS` | Имя stream команд нотификаций |
+| `NATS_STREAM_NOTIFICATION_COMMANDS` | `NOTIFICATION_COMMANDS` | Имя stream команд нотификаций |
 | `NATS_SUBJECTS_NOTIFICATION_COMMANDS` | `commands.notification.>` | Wildcard subjects stream |
-| `NATS_SUBJECT_NOTIFICATION_COMMANDS_SEND_VK` | `commands.notification.vk.send` | Зарезервированный subject VK-канала |
-| `NATS_CONSUMER_NOTIFICATION_COMMANDS_SEND_VK` | `vk-service-commands-send-vk` | Зарезервированный durable VK-канала |
-| `NATS_CONSUMER_ACK_WAIT_SECONDS` | `30` | Ack wait будущего consumer |
+| `NATS_SUBJECT_NOTIFICATION_COMMANDS_SEND_VK` | `commands.notification.vk.send` | Subject VK-канала |
+| `NATS_CONSUMER_NOTIFICATION_COMMANDS_SEND_VK` | `vk-service-commands-send-vk` | Durable VK-канала |
+| `NATS_CONSUMER_ACK_WAIT_SECONDS` | `30` | Ack wait consumer |
 | `NATS_CONSUMER_MAX_DELIVER` | `5` | Максимум доставок |
 | `NATS_CONSUMER_FETCH_BATCH_SIZE` | `10` | Размер батча pull-подписки |
 | `NATS_CONSUMER_FETCH_TIMEOUT_SECONDS` | `5` | Таймаут fetch |

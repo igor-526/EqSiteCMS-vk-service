@@ -1,6 +1,6 @@
 from nats.aio.client import Client as NATS
 from nats.js import JetStreamContext
-from nats.js.api import PubAck
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, PubAck
 
 from settings import NatsSettings
 
@@ -72,8 +72,18 @@ class NatsJetstreamClient:
         return None
 
     async def setup_consumers(self) -> None:
-        """No-op: сервис не обрабатывает сообщения и не регистрирует durable."""
-        return None
+        """Create/update only the durable owned by VK Service."""
+        await self.jetstream.add_consumer(
+            stream=self._settings.nats_stream_notification_commands,
+            config=ConsumerConfig(
+                durable_name=self._settings.nats_consumer_notification_commands_send_vk,
+                filter_subject=self._settings.nats_subject_notification_commands_send_vk,
+                deliver_policy=DeliverPolicy.ALL,
+                ack_policy=AckPolicy.EXPLICIT,
+                ack_wait=self._settings.nats_consumer_ack_wait_seconds,
+                max_deliver=self._settings.nats_consumer_max_deliver,
+            ),
+        )
 
     async def publish(
         self,

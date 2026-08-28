@@ -19,7 +19,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 FORBIDDEN_TOKENS = ("email", "smtp", "aiosmtplib")
 
-EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs"}
+EXPECTED_TABLES = {"user_vks", "vk_confirmations", "vk_logs", "vk_notification_deliveries"}
 
 
 def test_models_package_registers_only_vk_domain_tables() -> None:
@@ -36,9 +36,11 @@ def test_repositories_package_exports_only_vk_domain_members() -> None:
         "SQLAlchemyUserVkRepository",
         "SQLAlchemyVkConfirmationRepository",
         "SQLAlchemyVkLogRepository",
+        "SQLAlchemyVkNotificationDeliveryRepository",
         "UserVkRepositoryProtocol",
         "VkConfirmationRepositoryProtocol",
         "VkLogRepositoryProtocol",
+        "VkNotificationDeliveryRepositoryProtocol",
     }
     assert sorted(module.__all__) == list(module.__all__)
 

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from api import vks_router
-from containers.application import ApplicationContainer
+from containers import container
 from core.exceptions import AppError
 from settings import settings
 from utils.configure_sentry import configure_sentry
@@ -19,8 +19,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
-container = ApplicationContainer()
-
 configure_sentry()
 
 
@@ -29,12 +27,15 @@ async def lifespan(_: FastAPI):
     nats_client = container.nats_client()
     await nats_client.connect()
     await nats_client.setup()
+    vk_consumer = container.vk_notification_consumer()
+    await vk_consumer.start()
 
     metrics_runtime = start_metrics_runtime(environment=settings.environment)
 
     try:
         yield
     finally:
+        await vk_consumer.stop()
         await nats_client.close()
         await close_database()
         if metrics_runtime is not None:
