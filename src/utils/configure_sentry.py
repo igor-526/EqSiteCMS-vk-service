@@ -2,6 +2,7 @@ from typing import Any, cast
 
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import ignore_logger
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.types import Event
 
@@ -51,3 +52,8 @@ def configure_sentry(config: SentrySettings = sentry_settings) -> None:
         before_send=before_send,
         integrations=[FastApiIntegration(), SqlalchemyIntegration()],
     )
+
+    # Транзиентные reconnect'ы NATS не являются инцидентами: собственный
+    # error_cb клиента эскалирует их сам, а логирование библиотеки
+    # не должно обходить эту политику.
+    ignore_logger("nats.aio.client")

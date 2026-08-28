@@ -1,8 +1,16 @@
+import asyncio
+import logging
+
+import nats.errors
 from nats.aio.client import Client as NATS
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy, PubAck
+from nats.js.errors import NotFoundError
 
+from clients.nats.lifecycle import NatsConnectionErrorPolicy
 from settings import NatsSettings
+
+logger = logging.getLogger(__name__)
 
 
 class NatsJetstreamClient:
@@ -11,6 +19,10 @@ class NatsJetstreamClient:
 
         self._connection: NATS | None = None
         self._jetstream: JetStreamContext | None = None
+        self._error_policy = NatsConnectionErrorPolicy(
+            service_name="vk-service",
+            report_after_attempts=settings.nats_error_report_after_attempts,
+        )
 
     @property
     def is_connected(self) -> bool:
@@ -31,6 +43,7 @@ class NatsJetstreamClient:
             return
 
         self._connection = NATS()
+        self._error_policy.reset()
 
         await self._connection.connect(
             servers=self._settings.nats_servers,
@@ -38,6 +51,10 @@ class NatsJetstreamClient:
             connect_timeout=5,
             reconnect_time_wait=2,
             max_reconnect_attempts=-1,
+            error_cb=self._error_policy.on_error,
+            disconnected_cb=self._error_policy.on_disconnected,
+            reconnected_cb=self._error_policy.on_reconnected,
+            closed_cb=self._error_policy.on_closed,
         )
 
         self._jetstream = self._connection.jetstream()
@@ -48,7 +65,11 @@ class NatsJetstreamClient:
 
         try:
             if not self._connection.is_closed:
-                await self._connection.drain()
+                try:
+                    await self._connection.drain()
+                except (TimeoutError, nats.errors.Error) as error:
+                    logger.warning("NATS drain failed on shutdown, closing connection: %s", error)
+                    await self._connection.close()
         finally:
             self._connection = None
             self._jetstream = None
@@ -72,7 +93,44 @@ class NatsJetstreamClient:
         return None
 
     async def setup_consumers(self) -> None:
-        """Create/update only the durable owned by VK Service."""
+        """
+        Create/update only the durable owned by VK Service.
+
+        Durable регистрируется на stream `NOTIFICATION_COMMANDS`, которым
+        владеет другой сервис. Если владелец ещё не создал stream, JetStream
+        отвечает 404; это штатная гонка деплоя, поэтому попытка повторяется
+        с backoff, а не роняет startup.
+        """
+        stream = self._settings.nats_stream_notification_commands
+        max_attempts = self._settings.nats_setup_max_attempts
+        backoff_seconds = self._settings.nats_setup_backoff_seconds
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self._add_notification_commands_send_vk_consumer()
+                return
+            except NotFoundError:
+                if attempt >= max_attempts:
+                    logger.error(
+                        "Stream %s не появился после %s попыток: durable %s не зарегистрирован",
+                        stream,
+                        max_attempts,
+                        self._settings.nats_consumer_notification_commands_send_vk,
+                    )
+                    raise
+
+                wait_time = backoff_seconds * attempt if backoff_seconds > 0 else 0
+                logger.warning(
+                    "Stream %s ещё не создан владельцем (попытка %s из %s). Повтор через %.1f секунд.",
+                    stream,
+                    attempt,
+                    max_attempts,
+                    wait_time,
+                )
+                if wait_time:
+                    await asyncio.sleep(wait_time)
+
+    async def _add_notification_commands_send_vk_consumer(self) -> None:
         await self.jetstream.add_consumer(
             stream=self._settings.nats_stream_notification_commands,
             config=ConsumerConfig(

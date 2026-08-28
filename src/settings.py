@@ -135,6 +135,26 @@ class NatsSettings(BaseSettings):
         ge=1,
     )
 
+    # CONNECTION ERROR POLICY
+    nats_error_report_after_attempts: int = Field(
+        default=3,
+        alias="NATS_ERROR_REPORT_AFTER_ATTEMPTS",
+        ge=1,
+    )
+
+    # SETUP RETRY (durable на stream другого владельца)
+    nats_setup_max_attempts: int = Field(
+        default=10,
+        alias="NATS_SETUP_MAX_ATTEMPTS",
+        ge=1,
+    )
+
+    nats_setup_backoff_seconds: float = Field(
+        default=2.0,
+        alias="NATS_SETUP_BACKOFF_SECONDS",
+        ge=0,
+    )
+
     # PULL SETTINGS
     nats_consumer_fetch_batch_size: int = Field(
         default=10,
