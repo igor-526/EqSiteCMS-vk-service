@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from clients.nats import NatsJetstreamClient
 from clients.nats.consumers import NotificationCommandsSendVkConsumer
 from clients.nats.handlers import NotificationCommandsSendVkHandler
-from core.schemas.messaging import NotificationCommandSendVkData
+from core.schemas.messaging import VK_CHANNEL_CODE, NotificationCommandSendVkData, build_command_msg_id
 from models.user_vk import user_vks
 from models.vk_notification_delivery import vk_notification_deliveries
 from settings import NatsSettings, Settings
@@ -117,7 +117,14 @@ async def run(config: SmokeHarnessConfig) -> SmokeHarnessResult:
             await client.publish(
                 subject=topology.subject,
                 payload=payload,
-                headers={"Nats-Msg-Id": str(config.callback_request_id)},
+                headers={
+                    "Nats-Msg-Id": str(
+                        build_command_msg_id(
+                            correlation_id=config.callback_request_id,
+                            channel_code=VK_CHANNEL_CODE,
+                        )
+                    )
+                },
             )
 
         if config.scenario is SmokeScenario.CONCURRENT_DUPLICATE:

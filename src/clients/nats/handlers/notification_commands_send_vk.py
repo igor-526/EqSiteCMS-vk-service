@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from core.protocols.vk import VkMessengerProtocol
-from core.schemas.messaging import NotificationCommandSendVkData
+from core.schemas.messaging import VK_CHANNEL_CODE, NotificationCommandSendVkData, build_command_msg_id
 from core.services import VkDeliveryRetryableError, VkNotificationDeliveryService
 from repositories import SQLAlchemyUserVkRepository, SQLAlchemyVkNotificationDeliveryRepository
 
@@ -28,8 +28,12 @@ class NotificationCommandsSendVkHandler:
             message_id = UUID(headers["Nats-Msg-Id"])
         except (ValidationError, ValueError, KeyError) as exc:
             raise ValueError("Invalid VK notification command") from exc
-        if message_id != command.callback_request_id:
-            raise ValueError("Nats-Msg-Id does not match callback_request_id")
+        expected_message_id = build_command_msg_id(
+            correlation_id=command.callback_request_id,
+            channel_code=VK_CHANNEL_CODE,
+        )
+        if message_id != expected_message_id:
+            raise ValueError("Nats-Msg-Id does not match the VK command identity")
 
         async with self._session_factory() as session:
             service = self._service_factory(

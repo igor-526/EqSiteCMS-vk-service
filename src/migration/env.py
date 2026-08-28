@@ -11,7 +11,9 @@ from utils.basemodel import metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
-if config.config_file_name:
+# `fileConfig` по умолчанию отключает уже созданные логгеры, поэтому при in-process применении
+# миграций вызывающий код передаёт `configure_logger=False` и логирование сервиса остаётся живым.
+if config.config_file_name and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 target_metadata = metadata
 

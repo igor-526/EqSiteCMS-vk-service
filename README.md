@@ -75,6 +75,20 @@ VK Service создаёт/актуализирует только собстве
 FastAPI-приложения; отдельный bot runtime его не запускает. Успешные доставки фиксируются
 в `vk_notification_deliveries`, поэтому redelivery пропускает уже отправленных адресатов.
 
+### Идентичность команд
+
+`Nats-Msg-Id` вычисляется producer и consumer одинаково и не равен `callback_request_id`:
+
+```text
+Nats-Msg-Id = uuid5(NAMESPACE_NOTIFICATION_COMMAND, "<callback_request_id>:vk")
+NAMESPACE_NOTIFICATION_COMMAND = uuid5(NAMESPACE_DNS, "notification-commands.eqcms")
+```
+
+Дедупликация JetStream действует на уровне stream, поэтому email- и VK-команды одной заявки
+обязаны иметь разные идентификаторы. Handler отклоняет команду, чей заголовок не совпадает с
+вычисленным значением. Идемпотентность доставки при этом опирается на пару
+`(event_uuid, user_id)`, а не на `Nats-Msg-Id`.
+
 Проверка схемы: `npx --yes @asyncapi/cli validate docs/asyncapi.yaml`.
 
 ## Запуск

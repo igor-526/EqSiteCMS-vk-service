@@ -32,6 +32,12 @@ components:
       type: object
       additionalProperties: false
       required: [Nats-Msg-Id]
+      description: >-
+        Дедупликация JetStream действует на уровне stream, а не subject, поэтому Nats-Msg-Id
+        уникален в пределах stream NOTIFICATION_COMMANDS и различается между каналами одной
+        корреляции. Значение вычисляется одинаково producer и consumer как
+        uuid5(uuid5(NAMESPACE_DNS, "notification-commands.eqcms"), "<callback_request_id>:<channel_code>"),
+        где channel_code — "email" либо "vk". Nats-Msg-Id MUST NOT быть равен callback_request_id.
       properties:
         Nats-Msg-Id:
           type: string
