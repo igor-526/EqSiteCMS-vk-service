@@ -18,7 +18,9 @@ def test_disabled_sentry_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize("rate", [0.0, 1.0])
 def test_enabled_sentry_passes_metadata_once(monkeypatch: pytest.MonkeyPatch, rate: float) -> None:
     init = Mock()
+    ignored_loggers: list[str] = []
     monkeypatch.setattr(sentry_module.sentry_sdk, "init", init)
+    monkeypatch.setattr(sentry_module, "ignore_logger", ignored_loggers.append)
     config = SentrySettings(
         SENTRY_ENABLED=True,
         SENTRY_DSN="https://public@example.invalid/1",
@@ -38,6 +40,9 @@ def test_enabled_sentry_passes_metadata_once(monkeypatch: pytest.MonkeyPatch, ra
     assert kwargs["send_default_pii"] is False
     assert kwargs["max_request_body_size"] == "never"
     assert len(kwargs["integrations"]) == 2
+    assert ignored_loggers == ["nats.aio.client", "vkbottle"]
+    assert "bot" not in ignored_loggers
+    assert "bot.main" not in ignored_loggers
 
 
 @pytest.mark.parametrize("rate", [-0.01, 1.01])
@@ -56,13 +61,30 @@ def test_before_send_removes_credentials_and_body() -> None:
     sanitized = sentry_module.before_send(
         {
             "request": {"headers": {"Authorization": "secret", "X-Service-Key": "secret"}, "body": "secret"},
-            "extra": {"postgres_password": "secret"},
+            "extra": {"postgres_password": "secret", "VK_GROUP_TOKEN": "secret"},
         },
         {},
     )
     assert sanitized == {
         "request": {"headers": {"Authorization": "[Filtered]", "X-Service-Key": "[Filtered]"}},
-        "extra": {"postgres_password": "[Filtered]"},
+        "extra": {"postgres_password": "[Filtered]", "VK_GROUP_TOKEN": "[Filtered]"},
+    }
+
+
+def test_before_send_keeps_application_exception_details() -> None:
+    sanitized = sentry_module.before_send(
+        {
+            "logger": "bot.handlers",
+            "exception": {"values": [{"type": "RuntimeError", "value": "handler failed"}]},
+            "extra": {"operation": "preflight"},
+        },
+        {},
+    )
+
+    assert sanitized == {
+        "logger": "bot.handlers",
+        "exception": {"values": [{"type": "RuntimeError", "value": "handler failed"}]},
+        "extra": {"operation": "preflight"},
     }
 
 

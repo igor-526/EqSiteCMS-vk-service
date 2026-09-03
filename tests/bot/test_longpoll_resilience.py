@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -101,7 +102,9 @@ async def test_expired_key_and_lost_information_refetch_the_server(failure_code:
     assert polling.server_requests == 2, "the long poll server must be refetched"
 
 
-async def test_a_network_drop_retries_without_stopping_the_loop() -> None:
+async def test_a_network_drop_retries_without_stopping_the_loop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     polling = StubPolling(
         [
             ClientConnectionError("connection reset"),
@@ -110,11 +113,15 @@ async def test_a_network_drop_retries_without_stopping_the_loop() -> None:
         ]
     )
 
-    events = await _drain(polling)
+    with caplog.at_level(logging.ERROR, logger="vkbottle"):
+        events = await _drain(polling)
 
     assert [event["ts"] for event in events] == ["301"]
     assert polling.event_requests >= 3, "both drops must be retried before the event is delivered"
     assert polling.server_requests == 1, "a transient error must keep the current server and ts"
+    retry_records = [record for record in caplog.records if record.message.startswith("Unable to make request to ")]
+    assert len(retry_records) == 2
+    assert {record.name for record in retry_records} == {"vkbottle"}
 
 
 async def test_a_timeout_retries_without_stopping_the_loop() -> None:

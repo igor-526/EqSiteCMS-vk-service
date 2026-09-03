@@ -17,6 +17,7 @@ _SENSITIVE_KEYS = {
     "x-service-key",
     "password",
     "postgres_password",
+    "vk_group_token",
     "dsn",
 }
 
@@ -57,3 +58,7 @@ def configure_sentry(config: SentrySettings = sentry_settings) -> None:
     # error_cb клиента эскалирует их сам, а логирование библиотеки
     # не должно обходить эту политику.
     ignore_logger("nats.aio.client")
+    # BotPolling reports handled network failures through the root vkbottle
+    # logger. Keep the local record, but do not turn this library retry into a
+    # Sentry event; application loggers and exception capture remain enabled.
+    ignore_logger("vkbottle")

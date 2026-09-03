@@ -1,5 +1,6 @@
 """Границы библиотеки VK и неразглашение группового токена."""
 
+import ast
 import logging
 import re
 from pathlib import Path
@@ -19,6 +20,16 @@ def _source_files() -> list[Path]:
     return [path for path in sorted(SRC_ROOT.rglob("*.py")) if "__pycache__" not in path.parts]
 
 
+def _vk_library_imports(content: str) -> set[str]:
+    imports: set[str] = set()
+    for node in ast.walk(ast.parse(content)):
+        if isinstance(node, ast.Import):
+            imports.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.add(node.module.split(".", 1)[0])
+    return imports.intersection(LIBRARY_TOKENS)
+
+
 def test_library_is_imported_only_by_the_adapter_and_the_runtime() -> None:
     offenders: list[str] = []
 
@@ -26,8 +37,8 @@ def test_library_is_imported_only_by_the_adapter_and_the_runtime() -> None:
         relative = path.relative_to(SRC_ROOT).as_posix()
         if relative.startswith(ALLOWED_PREFIXES):
             continue
-        content = path.read_text(encoding="utf-8")
-        offenders += [f"{relative}:{token}" for token in LIBRARY_TOKENS if token in content]
+        imported = _vk_library_imports(path.read_text(encoding="utf-8"))
+        offenders += [f"{relative}:{token}" for token in sorted(imported)]
 
     assert offenders == []
 
@@ -40,10 +51,16 @@ def test_the_domain_layers_stay_free_of_the_library() -> None:
         relative = path.relative_to(SRC_ROOT).as_posix()
         if not relative.startswith(domain_prefixes):
             continue
-        content = path.read_text(encoding="utf-8")
-        offenders += [f"{relative}:{token}" for token in LIBRARY_TOKENS if token in content]
+        imported = _vk_library_imports(path.read_text(encoding="utf-8"))
+        offenders += [f"{relative}:{token}" for token in sorted(imported)]
 
     assert offenders == []
+
+
+def test_library_guard_distinguishes_imports_from_logger_name_literals() -> None:
+    assert _vk_library_imports('ignore_logger("vkbottle")') == set()
+    assert _vk_library_imports("from vkbottle.polling import BotPolling") == {"vkbottle"}
+    assert _vk_library_imports("import vkbottle_types.codegen") == {"vkbottle_types"}
 
 
 def test_forbidden_vk_libraries_are_not_imported() -> None:

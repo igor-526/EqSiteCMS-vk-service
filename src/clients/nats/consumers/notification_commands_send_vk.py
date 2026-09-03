@@ -65,7 +65,7 @@ class NotificationCommandsSendVkConsumer:
                     batch=self._settings.nats_consumer_fetch_batch_size,
                     timeout=self._settings.nats_consumer_fetch_timeout_seconds,
                 )
-            except NatsTimeoutError:
+            except TimeoutError, NatsTimeoutError:
                 continue
             except asyncio.CancelledError:
                 raise
