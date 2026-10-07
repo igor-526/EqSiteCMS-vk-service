@@ -25,18 +25,30 @@ configure_sentry()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     nats_client = container.nats_client()
-    await nats_client.connect()
-    await nats_client.setup()
-    vk_consumer = container.vk_notification_consumer()
-    await vk_consumer.start()
+    nats_connected = False
+    
+    try:
+        await nats_client.connect()
+        await nats_client.setup()
+        nats_connected = True
+        vk_consumer = container.vk_notification_consumer()
+        await vk_consumer.start()
+    except (ConnectionRefusedError, OSError) as error:
+        logging.error(
+            "Failed to connect to NATS after retries: %s. VK service starting in degraded mode.",
+            error,
+            exc_info=True,
+        )
 
     metrics_runtime = start_metrics_runtime(environment=settings.environment)
 
     try:
         yield
     finally:
-        await vk_consumer.stop()
-        await nats_client.close()
+        if nats_connected:
+            vk_consumer = container.vk_notification_consumer()
+            await vk_consumer.stop()
+            await nats_client.close()
         await close_database()
         if metrics_runtime is not None:
             metrics_runtime.close()
