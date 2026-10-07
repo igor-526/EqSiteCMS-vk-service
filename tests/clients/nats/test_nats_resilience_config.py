@@ -6,6 +6,7 @@ Unit tests для NATS client resilience configuration.
 - max_reconnect_attempts=10
 - reconnect_time_wait=2
 """
+
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -44,9 +45,7 @@ async def test_nats_connection_refused_raises_error_after_retries() -> None:
 
     with patch("clients.nats.client.NATS") as mock_nats_class:
         mock_connection = MagicMock()
-        mock_connection.connect = AsyncMock(
-            side_effect=ConnectionRefusedError(111, "Connection refused")
-        )
+        mock_connection.connect = AsyncMock(side_effect=ConnectionRefusedError(111, "Connection refused"))
         mock_nats_class.return_value = mock_connection
 
         with pytest.raises(ConnectionRefusedError):
@@ -58,7 +57,7 @@ async def test_nats_graceful_degradation_allows_startup(
 ) -> None:
     """
     Проверка graceful degradation: при NATS downtime приложение не падает.
-    
+
     Этот тест проверяет поведение lifespan context manager, но не может
     импортировать main.py напрямую из-за побочных эффектов (Sentry init).
     Вместо этого проверяем, что client.connect() пробрасывает ошибку,
@@ -69,9 +68,7 @@ async def test_nats_graceful_degradation_allows_startup(
 
     with patch("clients.nats.client.NATS") as mock_nats_class:
         mock_connection = MagicMock()
-        mock_connection.connect = AsyncMock(
-            side_effect=ConnectionRefusedError(111, "Connection refused")
-        )
+        mock_connection.connect = AsyncMock(side_effect=ConnectionRefusedError(111, "Connection refused"))
         mock_nats_class.return_value = mock_connection
 
         # Имитируем поведение graceful degradation из main.py
@@ -88,9 +85,9 @@ async def test_nats_graceful_degradation_allows_startup(
                 )
 
         assert nats_connected is False, "NATS не должен быть подключен при downtime"
-        assert any(
-            "degraded mode" in record.message for record in caplog.records
-        ), "Должно быть логирование о degraded mode"
+        assert any("degraded mode" in record.message for record in caplog.records), (
+            "Должно быть логирование о degraded mode"
+        )
 
 
 async def test_nats_error_policy_escalates_after_threshold() -> None:

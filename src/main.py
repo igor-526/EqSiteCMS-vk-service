@@ -26,7 +26,7 @@ configure_sentry()
 async def lifespan(_: FastAPI):
     nats_client = container.nats_client()
     nats_connected = False
-    
+
     try:
         await nats_client.connect()
         await nats_client.setup()
